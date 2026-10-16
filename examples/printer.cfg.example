@@ -1,0 +1,69 @@
+# Example pieces for printer.cfg. Adapt the values to your printer.
+# Only the parts that matter for the Beacon macro set are shown.
+
+[include beacon_macros/beacon_macros.cfg]
+# Optional extras (scan compensation, adaptive heat soak, multi-point true zero).
+# Run install.sh first and restart Klipper, otherwise leave this line commented.
+#[include beacon_macros/beacon_extras.cfg]
+
+# Settings you want to change. List only what differs from beacon_settings.cfg.
+[gcode_macro _BEACON_SETTINGS]
+variable_beacon_contact_true_zero_temp: 170
+variable_z_hop: 15
+# extras, see README.md
+#variable_beacon_adaptive_heat_soak: True
+#variable_beacon_scan_compensation_enable: True
+
+[beacon]
+serial: /dev/serial/by-id/usb-Beacon_Beacon_RevH_xxxxxxxx-if00
+x_offset: 0
+y_offset: 20
+mesh_main_direction: x
+mesh_runs: 2
+# Must be at least the highest temperature used by the macros
+# (variable_beacon_contact_expansion_cal_temp_high, default 250).
+contact_max_hotend_temperature: 250
+# home_method: contact is optional, see variable_beacon_contact_z_homing.
+
+[save_variables]
+filename: ~/printer_data/config/variables.cfg
+
+[bed_mesh]
+speed: 300
+horizontal_move_z: 2
+mesh_min: 20, 30
+mesh_max: 280, 280
+probe_count: 20, 20
+# Set to the safe home position (middle of the bed by default).
+zero_reference_position: 150, 150
+
+# Optional, Z homing through the macro set
+#[homing_override]
+#axes: z
+#set_position_z: 0
+#gcode:
+#    {% if 'xy' not in printer.toolhead.homed_axes %}
+#        G28 X Y
+#    {% endif %}
+#    BEACON_HOME_Z
+
+[gcode_macro PRINT_START]
+gcode:
+    {% set BED = params.BED|default(60)|float %}
+    {% set EXTRUDER = params.EXTRUDER|default(210)|float %}
+    G28
+    {% if printer.z_tilt is defined %}Z_TILT_ADJUST{% endif %}
+    M190 S{BED}
+    # adaptive heat soak when the extras are installed and enabled, otherwise bed_heat_soak_time
+    {% if printer["gcode_macro BEACON_HEAT_SOAK"] is defined %}BEACON_HEAT_SOAK{% endif %}
+    # contact true zero at the configured temperature, then switch to print temperature
+    BEACON_TRUE_ZERO
+    {% if printer["gcode_macro BEACON_PREFLIGHT_SCAN_COMPENSATION"] is defined %}BEACON_PREFLIGHT_SCAN_COMPENSATION BED_TEMP={BED}{% endif %}
+    BEACON_BED_MESH PROFILE=default
+    M109 S{EXTRUDER}
+
+[gcode_macro PRINT_END]
+gcode:
+    M104 S0
+    M140 S0
+    BEACON_RESET_NOZZLE_TEMP_OFFSET
