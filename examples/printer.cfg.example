@@ -5,6 +5,11 @@
 # Optional extras (scan compensation, adaptive heat soak, multi-point true zero).
 # Run install.sh first and restart Klipper, otherwise leave this line commented.
 #[include beacon_macros/beacon_extras.cfg]
+# Optional: RatOS style START_PRINT / END_PRINT (the slicer calls START_PRINT, see README.md).
+# It needs [virtual_sdcard] and [pause_resume]. With it you do not need the PRINT_START below.
+#[include beacon_macros/beacon_print.cfg]
+# Optional: CANCEL_PRINT that runs END_PRINT. Skip it if another file already renames CANCEL_PRINT.
+#[include beacon_macros/beacon_cancel_print.cfg]
 
 # Settings you want to change. List only what differs from beacon_settings.cfg.
 [gcode_macro _BEACON_SETTINGS]
