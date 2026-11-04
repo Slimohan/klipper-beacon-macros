@@ -31,6 +31,32 @@ License: GPL-3.0, like RatOS. See "License" at the end.
 | `BEACON_APPLY_SCAN_COMPENSATION` | *(extras)* Adds a compensation mesh to the loaded proximity mesh. `PROFILE=` |
 | `BEACON_PREFLIGHT_SCAN_COMPENSATION` | *(extras)* Errors out before a print if the compensation mesh is missing or does not fit the bed temperature |
 
+## Before you install
+
+This macro set sits on top of the Beacon's own Klipper module. Get that working first:
+
+1. **Install the Beacon module** ([beacon_klipper](https://github.com/beacon3d/beacon_klipper)): `cd ~ && git clone https://github.com/beacon3d/beacon_klipper.git && ./beacon_klipper/install.sh`, then restart Moonraker so it appears in the update manager.
+2. **Install OpenBLAS.** The Beacon module uses numpy. On a fresh Raspberry Pi OS it fails at startup with `Importing the numpy C-extensions failed ... libopenblas.so.0: cannot open shared object file`. Fix: `sudo apt install libopenblas-dev`, then restart Klipper.
+3. **Add a `[beacon]` section** with `serial:` (copy the path from `ls /dev/serial/by-id/`, do not type it) and the probe offsets (see below).
+4. **Remove what the Beacon replaces** from a stock config (Voron and most printer configs have these). Klipper stops with an error for each one left in:
+
+| Leftover in `printer.cfg` | Error you get | What to do |
+|---|---|---|
+| `[safe_z_home]` | `home_xy_position cannot be used with [safe_z_home]` | Delete or comment out the whole section, also any you copied from an example. The Beacon homes Z itself, with `home_xy_position` and `home_z_hop` in `[beacon]`. |
+| `[probe]` (inductive probe, Klicky, Tap) | `Option 'pin' is not valid in section 'probe'` | Delete the section and any `[include]` for it. The Beacon registers itself as the probe. |
+| `endstop_pin: ^PA0` (or similar) in `[stepper_z]` | Z homes on the old switch, or not at all | `[stepper_z]` needs `endstop_pin: probe:z_virtual_endstop` and `homing_retract_dist: 0`, and **no** `position_endstop`. |
+
+   Watch out for order: if you put the Beacon settings in their own `beacon.cfg`, a `[stepper_z]` or `[bed_mesh]` value that is still in `printer.cfg` **after** the include wins over it. Comment out the old `endstop_pin`, `position_endstop` and `homing_retract_dist` lines in `printer.cfg` itself.
+
+### Probe offsets
+
+`x_offset` and `y_offset` in `[beacon]` are where the Beacon coil sits relative to the nozzle, in printer coordinates: `+y` is towards the back, `+x` towards the right. Measure centre of nozzle to centre of the Beacon board. A Beacon 25 mm behind the nozzle is `x_offset: 0`, `y_offset: 25`. A wrong sign puts every contact and mesh point twice the offset away from where the macros expect it.
+
+Keep these consistent:
+
+- `home_xy_position` in `[beacon]`, `variable_safe_home_x/y` in `_BEACON_SETTINGS` (default `"middle"`) and `zero_reference_position` in `[bed_mesh]` should all be the same point, normally the bed centre (175, 175 on a 350 mm bed).
+- `mesh_min` / `mesh_max` in `[bed_mesh]` must be reachable by the Beacon with your offsets. With `y_offset: 25`, `mesh_min` Y below about 25 would need the nozzle at a negative Y.
+
 ## Install
 
 1. Put the files in your config directory as a folder named `beacon_macros`, for example `cd ~/printer_data/config && git clone https://github.com/Slimohan/klipper-beacon-macros beacon_macros`.
@@ -44,8 +70,16 @@ License: GPL-3.0, like RatOS. See "License" at the end.
    - `[bed_mesh]` with a zero reference: either `zero_reference_position` at the safe home position, or none at all when you install the extras. See "Zero reference and fuzzy true zero" below.
 4. Optional extras: run `./install.sh ~/klipper` (or `~/kalico`, or both; it links `klippy_extras/*.py` into `klippy/extras`, `COPY=1 ./install.sh` copies instead), add `[include beacon_macros/beacon_extras.cfg]` after the first include, and restart. See "Extras". Do not include `beacon_extras.cfg` without the modules, Klipper would refuse to start.
 5. Optional: the RatOS style print start. Add `[include beacon_macros/beacon_print.cfg]` after the other includes. It needs `[virtual_sdcard]` and `[pause_resume]`. For a `CANCEL_PRINT` that runs `END_PRINT`, see "Cancelling a print" below: with Mainsail or Fluidd, do **not** include `beacon_cancel_print.cfg`. See "Print start and end".
-6. Restart, then run `BEACON_PREFLIGHT_CHECK`.
-7. Run `BEACON_FULL_CALIBRATE`. It heats the bed and nozzle, probes the bed a lot, then saves and restarts.
+6. Restart, then run `BEACON_PREFLIGHT_CHECK` in the console. If it says "Unknown command", Klipper has not loaded the include: see "Troubleshooting".
+7. Prepare for the calibration (see below), then run `G28` and `BEACON_FULL_CALIBRATE`. It heats the bed and nozzle, probes the bed a lot, then saves and restarts.
+
+### Before the first calibration
+
+- **PID tune both heaters first:** `PID_CALIBRATE HEATER=extruder TARGET=250`, `PID_CALIBRATE HEATER=heater_bed TARGET=85`, then one `SAVE_CONFIG`. The hot contact and thermal expansion steps need stable temperatures. If your `[extruder]` lives in an included file (a toolhead board config, for example) and has `control:` / `pid_Kp:` lines, `SAVE_CONFIG` refuses with "section 'extruder' option 'control' conflicts with included value". Comment those lines out in the included file and run `SAVE_CONFIG` again; the results stay in memory until you restart.
+- **Clean the nozzle, inside and out.** Contact probing touches the bed with the nozzle. A string or blob on the tip touches first and gives false triggers. New hotends (Bambu style ones, for example) can come with test filament inside, which oozes once hot: heat to 250, let it ooze, wipe, repeat until clean, and wipe once more while it cools.
+- **Run `BEACON_POKE_TEST` once.** Every poke should trigger near `z=0` (a few hundredths of a millimetre) with a low latency. A poke that triggers well above the bed (for example `z=1.95`) is a false trigger: look for filament on the nozzle, a loose toolhead, Beacon mount or carriage, or vibration, and fix it before calibrating. Slightly higher latency and overshoot on a warm nozzle are normal.
+- **Close `printer.cfg` in the Mainsail/Fluidd editor.** `BEACON_FULL_CALIBRATE` and `BEACON_CREATE_SCAN_COMPENSATION_MESH` end with `SAVE_CONFIG`. An editor tab that is still open saves its old copy over the file when you press save, and that silently undoes the calibration result and any change made from the command line.
+- **Stay at the printer** for the first run, with the emergency stop at hand. Stopping it is safe at any point; run `FIRMWARE_RESTART` afterwards.
 
 ### Zero reference and fuzzy true zero
 
@@ -139,9 +173,10 @@ The RatOS version fits a pygam model at runtime. This version ships the predicti
 Fast proximity meshes carry a systematic error that depends on temperature, the bed surface and the gantry. Scan compensation measures it once on a hot bed: it probes the same spots by contact and by proximity, filters the contact map (gaussian, local-low filter for filament blobs, optional deridging), and stores `contact - proximity` as a compensation mesh profile. When a proximity mesh is made afterwards, `BEACON_APPLY_SCAN_COMPENSATION` adds that profile to it.
 
 1. Set `variable_beacon_scan_compensation_enable: True` and use the true zero workflow (`variable_beacon_contact_start_print_true_zero: True`). `[bed_mesh]` needs `zero_reference_position` (way A in "Zero reference and fuzzy true zero").
-2. Run `BEACON_FULL_CALIBRATE`, which creates the mesh at the end, or run `BEACON_CREATE_SCAN_COMPENSATION_MESH BED_TEMP=85` on its own. It heats up, soaks, levels (Z tilt or QGL if you have them) and then probes about `(bed / desired_spacing)^2` contact points. Plan for a long job.
+2. Run `BEACON_FULL_CALIBRATE`, which creates the mesh at the end (only when scan compensation is enabled; otherwise `BEACON_CREATE_SCAN_COMPENSATION_MESH` just reports "Beacon scan compensation is disabled!" and does nothing), or run `BEACON_CREATE_SCAN_COMPENSATION_MESH BED_TEMP=85` on its own. It heats up, soaks, levels (Z tilt or QGL if you have them) and then probes about `(bed / desired_spacing)^2` contact points. Plan for a long job.
 3. `BEACON_BED_MESH` applies it automatically after each proximity mesh. `variable_beacon_scan_compensation_profile: "auto"` picks the stored profile with the closest bed temperature.
-4. Put `BEACON_PREFLIGHT_SCAN_COMPENSATION` into `PRINT_START` before the mesh to fail fast if the profile is missing or made at a very different bed temperature (`variable_beacon_scan_compensation_bed_temp_mismatch_is_error`).
+4. **Make one mesh per bed temperature you print at**, for example `BED_TEMP=60` for PLA, `85` for PETG and `105` for ABS/ASA (with the enclosure closed). Each run saves its own profile (`compensation_bed_60C`, `compensation_bed_85C`, ...) and keeps the others; with `PROFILE=auto` the closest one is picked for every print. Each run takes a long time: the heat soak alone can take up to 2.5 hours in a cold enclosure (adaptive heat soak), and leveling (QGL or Z tilt) runs *after* the soak on purpose, because the gantry moves while it warms up. Check a mesh with `BEACON_PREFLIGHT_SCAN_COMPENSATION BED_TEMP=<the temperature it was made at>`; a warning that the temperature "differs by 25.0" only means you checked it against a different temperature.
+5. Put `BEACON_PREFLIGHT_SCAN_COMPENSATION` into `PRINT_START` before the mesh to fail fast if the profile is missing or made at a very different bed temperature (`variable_beacon_scan_compensation_bed_temp_mismatch_is_error`).
 
 If your Beacon x offset is an integer multiple of the desired spacing and the y offset is below 2 mm, probing is offset aligned (contact and proximity at the same spot in one pass). Otherwise it probes point by point. Mesh metadata is stored in the profile as `beacon_*` keys (RatOS uses `ratos_*`, so its profiles are not compatible). Other bed mesh profiles are never touched or removed, unlike RatOS.
 
@@ -161,7 +196,19 @@ Start gcode (one line, the same parameters RatOS uses):
 START_PRINT EXTRUDER_TEMP=[first_layer_temperature] EXTRUDER_OTHER_LAYER_TEMP=[temperature] BED_TEMP=[first_layer_bed_temperature] X0={first_layer_print_min[0]} Y0={first_layer_print_min[1]} X1={first_layer_print_max[0]} Y1={first_layer_print_max[1]} TOTAL_LAYER_COUNT=[total_layer_count]
 ```
 
-That is the PrusaSlicer / SuperSlicer spelling. For OrcaSlicer the temperatures are `[nozzle_temperature_initial_layer]`, `[nozzle_temperature]` and `[bed_temperature_initial_layer_single]`. I did not run a slicer: check the placeholder names of your version and read the start of the exported G-code before the first print. End gcode is just `END_PRINT`.
+That is the PrusaSlicer / SuperSlicer spelling. End gcode is just `END_PRINT`.
+
+**OrcaSlicer** (Printer settings, Machine G-code, Machine start G-code). Replace the **whole** field, including Orca's stock `M190`, `M109` and `PRINT_START` lines, with this one line (checked against an Orca export):
+
+```
+START_PRINT EXTRUDER_TEMP=[nozzle_temperature_initial_layer] EXTRUDER_OTHER_LAYER_TEMP=[nozzle_temperature] BED_TEMP=[bed_temperature_initial_layer_single] X0={first_layer_print_min[0]} Y0={first_layer_print_min[1]} X1={first_layer_print_max[0]} Y1={first_layer_print_max[1]} TOTAL_LAYER_COUNT=[total_layer_count]
+```
+
+Optional, for the layer counter in the frontend, in "Before layer change G-code": `SET_PRINT_STATS_INFO CURRENT_LAYER={layer_num + 1}`.
+
+Do not leave `M190` / `M109` in front of `START_PRINT`. They heat the nozzle to printing temperature before the true zero, so it oozes onto the bed during the contact probe. `START_PRINT` does all the heating itself, in the right order.
+
+**Check the first export.** Slice something, open the G-code and look at everything above `START_PRINT`: there must be no heating commands, and every parameter must be a number (`BED_TEMP=60`, `X0=158.1`). A parameter that still shows a placeholder in brackets means that name is wrong for your slicer version. Orca also puts `EXCLUDE_OBJECT_DEFINE` lines there; add an `[exclude_object]` section to `printer.cfg` so Klipper understands them (and you can cancel single objects).
 
 | Parameter | Needed | Meaning |
 |---|---|---|
@@ -215,6 +262,23 @@ On current Klipper and Kalico builds, in batch mode with a stub standing in for 
 
 **Not tested yet:** a full print through `START_PRINT` (prime blob, adaptive mesh, the move to the print area), a slicer, the Z tilt branch, and an actual print being cancelled. The print start motion sequence was checked by reading it, not by watching a machine. For the first print, keep a hand near the emergency stop, run `BEACON_PREFLIGHT_CHECK`, and watch the prime blob and the first move to the print area.
 
+## Troubleshooting
+
+| What you see | Cause and fix |
+|---|---|
+| `Unknown command: "BEACON_PREFLIGHT_CHECK"` (or any `BEACON_*`) | Klipper has not loaded the macros. Check `grep -n include ~/printer_data/config/printer.cfg` shows `[include beacon_macros/beacon_macros.cfg]`, then restart. If the line is gone, `printer.cfg` was open in the web editor and its old copy was saved over your change: close the tab without saving and add it again. |
+| `Importing the numpy C-extensions failed ... libopenblas.so.0` | `sudo apt install libopenblas-dev`, restart Klipper. |
+| `home_xy_position cannot be used with [safe_z_home]` | Remove every `[safe_z_home]` section. See "Before you install". |
+| `Option 'pin' is not valid in section 'probe'` | Remove the old `[probe]` section. |
+| `Current hotend temperature 251.1 exceeds maximum allowed temperature 250.0` | Set `contact_max_hotend_temperature: 260` in `[beacon]`. |
+| `SAVE_CONFIG section 'extruder' option 'control' conflicts with included value` | The PID values live in an included file. Comment them out there and run `SAVE_CONFIG` again. |
+| Poke test triggers far above the bed | False triggers: filament on the nozzle, something loose on the toolhead, or vibration. See "Before the first calibration". |
+| `MCU 'mcu' shutdown: Timer too close` right after "Saving config and restarting Klipper..." | The host stalled while `SAVE_CONFIG` rewrote a large `printer.cfg`. Fixed by the `M400` before `SAVE_CONFIG` (update with `git pull`). The calibration result was already saved: check with `grep -n "^#\*# \[bed_mesh" ~/printer_data/config/printer.cfg`, then `FIRMWARE_RESTART`. |
+| `Can not update MCU 'mcu' config as it is shutdown` | Not the real error. Something shut the MCU down first: `grep -n -i "shutdown" ~/printer_data/logs/klippy.log \| tail` shows what. |
+| `Beacon scan compensation is disabled!` | Set `variable_beacon_scan_compensation_enable: True` in `_BEACON_SETTINGS`, restart. |
+| Compensation warning "differs by 25.0 C" | No compensation mesh near that bed temperature. Make one at the temperature you print at. |
+| Klipper refuses to start after including `beacon_cancel_print.cfg` | It clashes with `mainsail.cfg` / `fluidd.cfg`. See "Cancelling a print". |
+
 ## RatOS name mapping
 
 | RatOS | This macro set |
@@ -252,7 +316,7 @@ Fuzzy true zero positions use the printer clock as a random source, because stoc
 
 - Klipper strips everything after a `#` on every config line, even in macros. Comments in these files are whole lines, and no value contains a `#`.
 - No `math` module, no `do` extension, no `random`: the macros use `namespace`, `** 0.5` and plain string methods.
-- Tested by running every macro and extra in batch mode on current Klipper and Kalico builds (October 2026) with a stub standing in for the Beacon. The stub simulates a bed, so the scan compensation result was checked against a known injected error, the multi-point correction against known samples, and the heat soak against a decaying drift. The gaussian, local-low and deridging filters were compared with scipy and numpy and agree to 1e-16. None of it has run on a real Beacon, so treat the first run as a test and watch the printer.
+- Tested by running every macro and extra in batch mode on current Klipper and Kalico builds (October 2026) with a stub standing in for the Beacon. The stub simulates a bed, so the scan compensation result was checked against a known injected error, the multi-point correction against known samples, and the heat soak against a decaying drift. The gaussian, local-low and deridging filters were compared with scipy and numpy and agree to 1e-16. Since then the calibration, preflight check and scan compensation have also run on a real printer (see "What was tested"); the print start has not yet. Treat your first print as a test and watch the printer.
 - The extras accept both finalize callback styles (Klipper `finalize(results)`, Kalico `finalize(offsets, results)`) and Klipper's `ProbeResult` objects.
 - Compensation meshes with more than 6 points per axis are stored with the bicubic algorithm, because lagrange interpolation does not allow more.
 
