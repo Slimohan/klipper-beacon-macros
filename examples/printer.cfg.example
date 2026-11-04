@@ -8,7 +8,9 @@
 # Optional: RatOS style START_PRINT / END_PRINT (the slicer calls START_PRINT, see README.md).
 # It needs [virtual_sdcard] and [pause_resume]. With it you do not need the PRINT_START below.
 #[include beacon_macros/beacon_print.cfg]
-# Optional: CANCEL_PRINT that runs END_PRINT. Skip it if another file already renames CANCEL_PRINT.
+# Optional: CANCEL_PRINT that runs END_PRINT. Do NOT use it together with mainsail.cfg or
+# fluidd.cfg: they already rename CANCEL_PRINT and Klipper would refuse to start. With those,
+# use the _CLIENT_VARIABLE block further down instead.
 #[include beacon_macros/beacon_cancel_print.cfg]
 
 # Settings you want to change. List only what differs from beacon_settings.cfg.
@@ -25,9 +27,10 @@ x_offset: 0
 y_offset: 20
 mesh_main_direction: x
 mesh_runs: 2
-# Must be at least the highest temperature used by the macros
-# (variable_beacon_contact_expansion_cal_temp_high, default 250).
-contact_max_hotend_temperature: 250
+# Must be at least 10 degrees above the highest temperature used by the macros
+# (variable_beacon_contact_expansion_cal_temp_high, default 250). The hotend briefly
+# overshoots its target, and an equal value stops the calibration with a temperature error.
+contact_max_hotend_temperature: 260
 # home_method: contact is optional, see variable_beacon_contact_z_homing.
 
 [save_variables]
@@ -39,8 +42,19 @@ horizontal_move_z: 2
 mesh_min: 20, 30
 mesh_max: 280, 280
 probe_count: 20, 20
-# Set to the safe home position (middle of the bed by default).
+# Zero reference: pick ONE of the two ways, see "Zero reference and fuzzy true zero" in README.md.
+# A) fixed reference at the safe home position, with the fuzzy true zero switched off
+#    (variable_beacon_contact_start_print_true_zero_fuzzy_position: False):
 zero_reference_position: 150, 150
+# B) with the extras installed: leave zero_reference_position out. START_PRINT then
+#    references every mesh to the spot where the true zero was measured.
+
+# With mainsail.cfg or fluidd.cfg (instead of beacon_cancel_print.cfg): their CANCEL_PRINT
+# runs END_PRINT, and END_PRINT does the parking.
+#[gcode_macro _CLIENT_VARIABLE]
+#variable_park_at_cancel: False
+#variable_user_cancel_macro: "END_PRINT"
+#gcode:
 
 # Optional, Z homing through the macro set
 #[homing_override]

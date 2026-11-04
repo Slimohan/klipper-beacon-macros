@@ -24,7 +24,7 @@ License: GPL-3.0, like RatOS. See "License" at the end.
 | `BEACON_HOME_Z` | Z homing for `homing_override` |
 | `BEACON_PREFLIGHT_CHECK` | Checks your setup for common mistakes. Moves nothing |
 | `START_PRINT`, `END_PRINT` | *(beacon_print.cfg)* RatOS style print start and end. Same slicer parameters and hook macros as RatOS. See "Print start and end" |
-| `CANCEL_PRINT` | *(beacon_cancel_print.cfg)* Runs `END_PRINT` and cancels, like RatOS |
+| `CANCEL_PRINT` | *(beacon_cancel_print.cfg)* Runs `END_PRINT` and cancels, like RatOS. Not with Mainsail/Fluidd macros, see "Cancelling a print" |
 | `BEACON_ADAPTIVE_MESH`, `BEACON_PRIME_BLOB`, `BEACON_PROBE_FOR_PRIMING` | *(beacon_print.cfg)* The adaptive mesh and prime blob pieces behind `START_PRINT` |
 | `BEACON_HEAT_SOAK` | *(extras)* Waits for bed expansion: adaptive with the Beacon, or the fixed `bed_heat_soak_time` |
 | `BEACON_CREATE_SCAN_COMPENSATION_MESH` | *(extras)* Creates a compensation mesh from contact and proximity probes. `BED_TEMP=85 CHAMBER_TEMP=0 PROFILE=auto KEEP_TEMP_MESHES=0` |
@@ -39,13 +39,37 @@ License: GPL-3.0, like RatOS. See "License" at the end.
    [include beacon_macros/beacon_macros.cfg]
    ```
 3. Make sure these sections exist (see `examples/printer.cfg.example`):
-   - `[beacon]` with `contact_max_hotend_temperature` of at least 250 (or lower `variable_beacon_contact_expansion_cal_temp_high`)
+   - `[beacon]` with `contact_max_hotend_temperature: 260`. It must be at least 10 degrees above `variable_beacon_contact_expansion_cal_temp_high` (default 250): the hotend briefly overshoots its target, and with both at 250 the calibration stops with "Current hotend temperature 251.1 exceeds maximum allowed temperature 250.0".
    - `[save_variables]` (stores the thermal expansion coefficient)
-   - `[bed_mesh]` with `zero_reference_position` set to the safe home position
+   - `[bed_mesh]` with a zero reference: either `zero_reference_position` at the safe home position, or none at all when you install the extras. See "Zero reference and fuzzy true zero" below.
 4. Optional extras: run `./install.sh ~/klipper` (or `~/kalico`, or both; it links `klippy_extras/*.py` into `klippy/extras`, `COPY=1 ./install.sh` copies instead), add `[include beacon_macros/beacon_extras.cfg]` after the first include, and restart. See "Extras". Do not include `beacon_extras.cfg` without the modules, Klipper would refuse to start.
-5. Optional: the RatOS style print start. Add `[include beacon_macros/beacon_print.cfg]` (and `beacon_cancel_print.cfg` if you want `CANCEL_PRINT`) after the other includes. It needs `[virtual_sdcard]` and `[pause_resume]`. See "Print start and end".
+5. Optional: the RatOS style print start. Add `[include beacon_macros/beacon_print.cfg]` after the other includes. It needs `[virtual_sdcard]` and `[pause_resume]`. For a `CANCEL_PRINT` that runs `END_PRINT`, see "Cancelling a print" below: with Mainsail or Fluidd, do **not** include `beacon_cancel_print.cfg`. See "Print start and end".
 6. Restart, then run `BEACON_PREFLIGHT_CHECK`.
 7. Run `BEACON_FULL_CALIBRATE`. It heats the bed and nozzle, probes the bed a lot, then saves and restarts.
+
+### Zero reference and fuzzy true zero
+
+The bed mesh needs a zero reference: the spot where the mesh height counts as zero, which should be where the true zero was measured. By default `BEACON_TRUE_ZERO` measures at a random ("fuzzy") spot within `variable_beacon_contact_start_print_true_zero_fuzzy_radius` (20 mm) of the safe home position, so the hot nozzle does not touch the same spot of the sheet every print. A fixed `zero_reference_position` in `[bed_mesh]` and a fuzzy true zero do not go together: `START_PRINT` uses the fixed position, and the mesh can be off by the bed height difference between the two spots. Pick one way:
+
+| | Fuzzy true zero | `[bed_mesh]` | Result |
+|---|---|---|---|
+| **A** | off: `variable_beacon_contact_start_print_true_zero_fuzzy_position: False` | `zero_reference_position` at the safe home position | Exact, works without the extras. The nozzle touches the same spot every print, which can mark a smooth PEI sheet over time. |
+| **B** | on (default) | no `zero_reference_position`, extras installed | `START_PRINT` references every mesh to where the true zero was measured (`[beacon_zero_reference]`). Spreads the wear. A mesh made outside `START_PRINT` is not referenced. |
+
+`BEACON_PREFLIGHT_CHECK` warns about the combinations that do not work. A sensible start is A for the first prints and B once printing is reliable. Scan compensation works best with A.
+
+### Cancelling a print
+
+`beacon_cancel_print.cfg` gives a RatOS style `CANCEL_PRINT` that runs `END_PRINT`. It renames Klipper's `CANCEL_PRINT`, so it **cannot** be used with `mainsail.cfg` or `fluidd.cfg`, which rename it already (Klipper refuses to start). With those, leave `beacon_cancel_print.cfg` out and let their `CANCEL_PRINT` call `END_PRINT` instead. Add to `printer.cfg` (if you already have a `_CLIENT_VARIABLE` macro, add the two variables to it):
+
+```
+[gcode_macro _CLIENT_VARIABLE]
+variable_park_at_cancel: False
+variable_user_cancel_macro: "END_PRINT"
+gcode:
+```
+
+`park_at_cancel: False` because `END_PRINT` parks already; without it the toolhead parks twice.
 
 ## Settings
 
@@ -114,7 +138,7 @@ The RatOS version fits a pygam model at runtime. This version ships the predicti
 
 Fast proximity meshes carry a systematic error that depends on temperature, the bed surface and the gantry. Scan compensation measures it once on a hot bed: it probes the same spots by contact and by proximity, filters the contact map (gaussian, local-low filter for filament blobs, optional deridging), and stores `contact - proximity` as a compensation mesh profile. When a proximity mesh is made afterwards, `BEACON_APPLY_SCAN_COMPENSATION` adds that profile to it.
 
-1. Set `variable_beacon_scan_compensation_enable: True` and use the true zero workflow (`variable_beacon_contact_start_print_true_zero: True`). `[bed_mesh]` needs `zero_reference_position`.
+1. Set `variable_beacon_scan_compensation_enable: True` and use the true zero workflow (`variable_beacon_contact_start_print_true_zero: True`). `[bed_mesh]` needs `zero_reference_position` (way A in "Zero reference and fuzzy true zero").
 2. Run `BEACON_FULL_CALIBRATE`, which creates the mesh at the end, or run `BEACON_CREATE_SCAN_COMPENSATION_MESH BED_TEMP=85` on its own. It heats up, soaks, levels (Z tilt or QGL if you have them) and then probes about `(bed / desired_spacing)^2` contact points. Plan for a long job.
 3. `BEACON_BED_MESH` applies it automatically after each proximity mesh. `variable_beacon_scan_compensation_profile: "auto"` picks the stored profile with the closest bed temperature.
 4. Put `BEACON_PREFLIGHT_SCAN_COMPENSATION` into `PRINT_START` before the mesh to fail fast if the profile is missing or made at a very different bed temperature (`variable_beacon_scan_compensation_bed_temp_mismatch_is_error`).
@@ -187,7 +211,9 @@ The flow is the same. These parts are different or missing, and you should know 
 
 On current Klipper and Kalico builds, in batch mode with a stub standing in for the Beacon (the same one used for the other macros), the whole sequence ran from `START_PRINT` to `END_PRINT` and `CANCEL_PRINT`. I read the resulting command sequence against the RatOS code for: default settings; no true zero; no priming; park positions; full bed and adaptive meshes; contact mesh; probe clean before true zero; bed and hotend soak; relative extrusion; user hooks and chamber hook; an empty filament sensor; missing parameters; a printer without the extras; the zero reference module (the mesh height at the reference point becomes zero, also after reloading the profile). The adaptive mesh limits, counts and algorithm choice matched my own Python re-implementation of the RatOS algorithm on 108 test rectangles over four mesh configurations.
 
-**Not tested:** a real printer, a real Beacon (`PROBE`, `BED_MESH_CALIBRATE` and `BEACON_AUTO_CALIBRATE` were stubs), a slicer, the Z tilt / quad gantry leveling branch, and an actual print being cancelled. The motion sequence was checked by reading it, not by watching a machine. For the first print, keep a hand near the emergency stop, run `BEACON_PREFLIGHT_CHECK`, and watch the prime blob and the first move to the print area.
+**First real hardware run** (Voron 2.4, Beacon RevH, November 2026): `BEACON_FULL_CALIBRATE` and `BEACON_PREFLIGHT_CHECK` ran on a real printer. It showed three problems, now fixed in this README, the example and the preflight check: `contact_max_hotend_temperature` at 250 stopped the calibration on a 1 degree overshoot, `beacon_cancel_print.cfg` clashes with the Mainsail/Fluidd macros, and the advice on `zero_reference_position` contradicted the fuzzy true zero.
+
+**Not tested yet:** a full print through `START_PRINT` (prime blob, adaptive mesh, the move to the print area), a slicer, the Z tilt branch, and an actual print being cancelled. The print start motion sequence was checked by reading it, not by watching a machine. For the first print, keep a hand near the emergency stop, run `BEACON_PREFLIGHT_CHECK`, and watch the prime blob and the first move to the print area.
 
 ## RatOS name mapping
 
