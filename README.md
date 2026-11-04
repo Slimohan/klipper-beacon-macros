@@ -56,6 +56,7 @@ Keep these consistent:
 
 - `home_xy_position` in `[beacon]`, `variable_safe_home_x/y` in `_BEACON_SETTINGS` (default `"middle"`) and `zero_reference_position` in `[bed_mesh]` should all be the same point, normally the bed centre (175, 175 on a 350 mm bed).
 - `mesh_min` / `mesh_max` in `[bed_mesh]` must be reachable by the Beacon with your offsets. With `y_offset: 25`, `mesh_min` Y below about 25 would need the nozzle at a negative Y.
+- Leveling points (`points` in `[z_tilt]` or `[quad_gantry_level]`) are **nozzle** positions. Klipper probes with the Beacon at that position plus the offset, so pick points where the Beacon is still over the bed. With the Beacon behind the nozzle, keep the back points about `y_offset` away from the back edge. The macros run `Z_TILT_ADJUST` or `QUAD_GANTRY_LEVEL`, whichever is configured, in the same places (print start, calibration, compensation mesh) and set Z again afterwards.
 
 ## Install
 
