@@ -171,6 +171,8 @@ The RatOS version fits a pygam model at runtime. This version ships the predicti
 
 ### Scan compensation (`[beacon_scan_compensation]`)
 
+> **Experimental.** On the first test printer (Voron 2.4 350, Beacon RevH 25 mm behind the nozzle, open frame) two compensation meshes, made at 60 °C and 85 °C, both carried the same front-to-back slope of about 0.12 to 0.13 mm. Applied to a print, that slope made the first layer too high along the whole front edge; with compensation off the same layer came out even. The cause is not found yet (the probe pairing, the deridging axis and drift during the run were checked and do not explain it). Leave it off (the default) unless you can verify it on your printer: make a mesh, print a full-bed single layer with and without it, and keep it only if it is better.
+
 Fast proximity meshes carry a systematic error that depends on temperature, the bed surface and the gantry. Scan compensation measures it once on a hot bed: it probes the same spots by contact and by proximity, filters the contact map (gaussian, local-low filter for filament blobs, optional deridging), and stores `contact - proximity` as a compensation mesh profile. When a proximity mesh is made afterwards, `BEACON_APPLY_SCAN_COMPENSATION` adds that profile to it.
 
 1. Set `variable_beacon_scan_compensation_enable: True` and use the true zero workflow (`variable_beacon_contact_start_print_true_zero: True`). `[bed_mesh]` needs `zero_reference_position` (way A in "Zero reference and fuzzy true zero").
@@ -277,6 +279,7 @@ On current Klipper and Kalico builds, in batch mode with a stub standing in for 
 | `MCU 'mcu' shutdown: Timer too close` right after "Saving config and restarting Klipper..." | The host stalled while `SAVE_CONFIG` rewrote a large `printer.cfg`. Fixed by the `M400` before `SAVE_CONFIG` (update with `git pull`). The calibration result was already saved: check with `grep -n "^#\*# \[bed_mesh" ~/printer_data/config/printer.cfg`, then `FIRMWARE_RESTART`. |
 | `Can not update MCU 'mcu' config as it is shutdown` | Not the real error. Something shut the MCU down first: `grep -n -i "shutdown" ~/printer_data/logs/klippy.log \| tail` shows what. |
 | `Beacon scan compensation is disabled!` | Set `variable_beacon_scan_compensation_enable: True` in `_BEACON_SETTINGS`, restart. |
+| First layer too high along one edge (often the front) with scan compensation on, even with it off | The compensation mesh adds a slope that is not there. Load the `compensation_bed_*` profile in the heightmap: if Max and Min sit on opposite edges, turn compensation off (`variable_beacon_scan_compensation_enable: False`). See the note in "Scan compensation". |
 | Compensation warning "differs by 25.0 C" | No compensation mesh near that bed temperature. Make one at the temperature you print at. |
 | Klipper refuses to start after including `beacon_cancel_print.cfg` | It clashes with `mainsail.cfg` / `fluidd.cfg`. See "Cancelling a print". |
 
