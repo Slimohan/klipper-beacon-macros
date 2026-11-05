@@ -6,6 +6,23 @@ It also has an optional RatOS style `START_PRINT` / `END_PRINT` / `CANCEL_PRINT`
 
 License: GPL-3.0, like RatOS. See "License" at the end.
 
+## Quick start
+
+For a printer that already prints, with a Beacon that is wired up and has a `[beacon]` section:
+
+```
+cd ~ && git clone https://github.com/beacon3d/beacon_klipper.git && ./beacon_klipper/install.sh   # if not done yet
+sudo apt install libopenblas-dev                                                               # if not done yet
+cd ~/printer_data/config && git clone https://github.com/Slimohan/klipper-beacon-macros beacon_macros
+cd beacon_macros && ./install.sh --check      # lists what to fix in your config, changes nothing
+./install.sh                                  # installs (asks before writing, backs up printer.cfg)
+sudo systemctl restart klipper moonraker
+```
+
+Then `BEACON_PREFLIGHT_CHECK` in the console, the steps in "Before the first calibration", and `BEACON_FULL_CALIBRATE`. For `START_PRINT`, put the one-line start G-code from "Slicer start and end gcode" into your slicer.
+
+**Flying gantry printers (Voron 2.4 and similar):** everything works, except that scan compensation is not proven on them yet. See the note in "Scan compensation".
+
 ## What you get
 
 | Command | What it does |
@@ -60,19 +77,50 @@ Keep these consistent:
 
 ## Install
 
-1. Put the files in your config directory as a folder named `beacon_macros`, for example `cd ~/printer_data/config && git clone https://github.com/Slimohan/klipper-beacon-macros beacon_macros`.
-2. Add to `printer.cfg`:
+### With the installer (recommended)
+
+1. Clone the repo into your config folder as `beacon_macros` (the includes depend on that name):
+   `cd ~/printer_data/config && git clone https://github.com/Slimohan/klipper-beacon-macros beacon_macros`
+2. Run `./install.sh --check` in that folder. It reads `printer.cfg` and every file it includes, the way Klipper does, and lists what would stop Klipper or the calibration, with the file and line: a leftover `[safe_z_home]` or `[probe]`, the Z endstop, `position_endstop`, `homing_retract_dist`, `contact_max_hotend_temperature`, missing probe offsets, the Beacon module or libopenblas missing, an option set to different values in two files (a placeholder serial path or a stock fan pin that silently wins), PID or input shaper values in an included file (`SAVE_CONFIG` refuses those), and `beacon_cancel_print.cfg` together with Mainsail/Fluidd. It changes nothing. Fix what it reports in your own files; it does not edit your sections.
+3. Run `./install.sh`. It
+   - links the extras modules into `~/klipper` and/or `~/kalico` (and hides them from Klipper's git status),
+   - asks whether you want the RatOS style `START_PRINT` (`beacon_print.cfg`),
+   - backs up `printer.cfg` (`printer.cfg.bak-<date>`) and adds, only where missing, the includes, `[save_variables]`, `[exclude_object]` and, with Mainsail/Fluidd, a `_CLIENT_VARIABLE` so their `CANCEL_PRINT` runs `END_PRINT`. The additions are one marked block after your last include,
+   - creates `variables.cfg`,
+   - adds an `[update_manager beacon_macros]` entry to `moonraker.conf`, so updates come through the Mainsail/Fluidd update manager like everything else.
+
+   Close `printer.cfg` in the web editor first. Running it again is safe: it only adds what is still missing.
+4. Restart Klipper and Moonraker (`sudo systemctl restart klipper moonraker`), then run `BEACON_PREFLIGHT_CHECK` in the console. If it says "Unknown command", see "Troubleshooting".
+5. Prepare for the calibration (see below), then run `G28` and `BEACON_FULL_CALIBRATE`. It heats the bed and nozzle, probes the bed a lot, then saves and restarts.
+
+Options: `--dry-run` (show the changes, write nothing), `--yes` (no questions, take the defaults), `--print-start` / `--no-print-start`, `--no-extras`, `--no-moonraker`, `--config <folder>` (another config folder), `--klipper <folder>` (another Klipper or Kalico folder), `--copy` (copy the modules instead of linking them), `--links-only` (only link the modules, the old behaviour). `./install.sh --help` lists them.
+
+### By hand
+
+1. Clone as above.
+2. Add to `printer.cfg`, in this order:
    ```
    [include beacon_macros/beacon_macros.cfg]
+   [include beacon_macros/beacon_extras.cfg]   # only after ./install.sh --links-only
+   [include beacon_macros/beacon_print.cfg]    # optional, RatOS style START_PRINT
    ```
+   Do not include `beacon_extras.cfg` without the modules, Klipper would refuse to start.
 3. Make sure these sections exist (see `examples/printer.cfg.example`):
    - `[beacon]` with `contact_max_hotend_temperature: 260`. It must be at least 10 degrees above `variable_beacon_contact_expansion_cal_temp_high` (default 250): the hotend briefly overshoots its target, and with both at 250 the calibration stops with "Current hotend temperature 251.1 exceeds maximum allowed temperature 250.0".
    - `[save_variables]` (stores the thermal expansion coefficient)
    - `[bed_mesh]` with a zero reference: either `zero_reference_position` at the safe home position, or none at all when you install the extras. See "Zero reference and fuzzy true zero" below.
-4. Optional extras: run `./install.sh ~/klipper` (or `~/kalico`, or both; it links `klippy_extras/*.py` into `klippy/extras`, `COPY=1 ./install.sh` copies instead), add `[include beacon_macros/beacon_extras.cfg]` after the first include, and restart. See "Extras". Do not include `beacon_extras.cfg` without the modules, Klipper would refuse to start.
-5. Optional: the RatOS style print start. Add `[include beacon_macros/beacon_print.cfg]` after the other includes. It needs `[virtual_sdcard]` and `[pause_resume]`. For a `CANCEL_PRINT` that runs `END_PRINT`, see "Cancelling a print" below: with Mainsail or Fluidd, do **not** include `beacon_cancel_print.cfg`. See "Print start and end".
-6. Restart, then run `BEACON_PREFLIGHT_CHECK` in the console. If it says "Unknown command", Klipper has not loaded the include: see "Troubleshooting".
-7. Prepare for the calibration (see below), then run `G28` and `BEACON_FULL_CALIBRATE`. It heats the bed and nozzle, probes the bed a lot, then saves and restarts.
+   - For `beacon_print.cfg`: `[virtual_sdcard]` and `[pause_resume]` (Mainsail/Fluidd provide them). For a `CANCEL_PRINT` that runs `END_PRINT`, see "Cancelling a print": with Mainsail or Fluidd, do **not** include `beacon_cancel_print.cfg`.
+4. Optional, for updates from the web interface, add to `moonraker.conf`:
+   ```
+   [update_manager beacon_macros]
+   type: git_repo
+   path: ~/printer_data/config/beacon_macros
+   origin: https://github.com/Slimohan/klipper-beacon-macros.git
+   primary_branch: main
+   managed_services: klipper
+   is_system_service: False
+   ```
+5. Restart, `BEACON_PREFLIGHT_CHECK`, then the calibration as above.
 
 ### Before the first calibration
 
@@ -151,7 +199,7 @@ Setting a target of 0 leaves the offset unchanged, so it does not jump at the en
 
 These three features need Python, so they are Klipper extras modules. They are optional: the macros detect whether they are installed. Adaptive heat soak falls back to the fixed time, and an enabled but missing module is reported by `BEACON_PREFLIGHT_CHECK` and stops `BEACON_FULL_CALIBRATE` before it does any work.
 
-Install: `./install.sh ~/klipper ~/kalico` (whichever you use), add `[include beacon_macros/beacon_extras.cfg]` after `beacon_macros.cfg`, restart Klipper. numpy and scipy are not required. If scipy happens to be installed it is used for one interpolation step, otherwise a pure Python fallback runs.
+Install: `./install.sh` links them into `~/klipper` and/or `~/kalico` and adds `[include beacon_macros/beacon_extras.cfg]` after `beacon_macros.cfg` (by hand: `./install.sh --links-only`, then add the include yourself). Restart Klipper afterwards; after an update through Moonraker the links stay valid, Moonraker restarts Klipper. numpy and scipy are not required. If scipy happens to be installed it is used for one interpolation step, otherwise a pure Python fallback runs.
 
 ### Multi-point true zero (`[beacon_true_zero_correction]`)
 
@@ -171,7 +219,7 @@ The RatOS version fits a pygam model at runtime. This version ships the predicti
 
 ### Scan compensation (`[beacon_scan_compensation]`)
 
-> **Experimental.** On the first test printer (Voron 2.4 350, Beacon RevH 25 mm behind the nozzle, open frame) two compensation meshes, made at 60 °C and 85 °C, both carried the same front-to-back slope of about 0.12 to 0.13 mm. Applied to a print, that slope made the first layer too high along the whole front edge; with compensation off the same layer came out even. The cause is not found yet (the probe pairing, the deridging axis and drift during the run were checked and do not explain it). Leave it off (the default) unless you can verify it on your printer: make a mesh, print a full-bed single layer with and without it, and keep it only if it is better.
+> **May not apply to the Voron 2.4 and other flying gantry printers.** Scan compensation works as in RatOS, where it was developed on fixed gantry machines (the bed moves in Z on lead screws, so the gantry does not give under a contact touch). On the first test printer, a Voron 2.4 350 (flying gantry on four Z belts, Beacon RevH 25 mm behind the nozzle, open frame), two compensation meshes made at 60 °C and 85 °C both carried the same front-to-back slope of about 0.12 to 0.13 mm. Applied to a print, that slope made the first layer too high along the whole front edge; with compensation off the same layer came out even. The probe pairing, the deridging axis and drift during the run were checked and do not explain it. The most likely cause is that a gantry hanging on belts gives slightly under each contact touch, by a different amount at the front and the back, so the contact reference itself is skewed. This is still being diagnosed. Until then: on a flying gantry printer, verify it before you rely on it (make a mesh, print a full-bed single layer with and without it, keep whichever is better); `BEACON_PREFLIGHT_CHECK` and the installer remind you when quad gantry leveling is configured. A test on a fixed gantry printer running mainline Klipper is planned next.
 
 Fast proximity meshes carry a systematic error that depends on temperature, the bed surface and the gantry. Scan compensation measures it once on a hot bed: it probes the same spots by contact and by proximity, filters the contact map (gaussian, local-low filter for filament blobs, optional deridging), and stores `contact - proximity` as a compensation mesh profile. When a proximity mesh is made afterwards, `BEACON_APPLY_SCAN_COMPENSATION` adds that profile to it.
 
@@ -284,6 +332,7 @@ On current Klipper and Kalico builds, in batch mode with a stub standing in for 
 | First layer too high along one edge (often the front) with scan compensation on, even with it off | The compensation mesh adds a slope that is not there. Load the `compensation_bed_*` profile in the heightmap: if Max and Min sit on opposite edges, turn compensation off (`variable_beacon_scan_compensation_enable: False`). See the note in "Scan compensation". |
 | Compensation warning "differs by 25.0 C" | No compensation mesh near that bed temperature. Make one at the temperature you print at. |
 | Klipper refuses to start after including `beacon_cancel_print.cfg` | It clashes with `mainsail.cfg` / `fluidd.cfg`. See "Cancelling a print". |
+| Not sure what is wrong in the config | `./install.sh --check` reads the whole config and lists the known problems with file and line. It changes nothing. |
 
 ## RatOS name mapping
 
