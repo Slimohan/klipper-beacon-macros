@@ -1000,6 +1000,16 @@ class BeaconScanCompensation:
             raise self.printer.command_error(
                 "Could not apply scan compensation")
 
+    def _get_zero_ref_pos(self):
+        """zero_reference_position of [bed_mesh], or None. Klipper keeps it
+        in bmc.probe_mgr, Kalico in bmc."""
+        bmc = getattr(self.bed_mesh, "bmc", None)
+        for holder in (getattr(bmc, "probe_mgr", None), bmc):
+            ref = getattr(holder, "zero_ref_pos", None)
+            if ref is not None:
+                return ref
+        return None
+
     def apply_scan_compensation(self, comp_name):
         error_title = "Apply scan compensation error"
         try:
@@ -1052,6 +1062,21 @@ class BeaconScanCompensation:
                 self.reactor.pause(self.reactor.monotonic()
                                    + DEFAULT_REACTOR_PAUSE_OFFSET)
             measured.build_mesh(new_points)
+            # A compensation mesh is "contact - proximity" and carries a large
+            # constant part (about the Beacon trigger distance). Adding it
+            # shifts the whole mesh by that constant. Re-reference the result
+            # so the height at the zero reference stays zero, the same as the
+            # measured mesh before compensation. Without a configured zero
+            # reference, keep the height at the mesh centre unchanged instead.
+            ref = self._get_zero_ref_pos()
+            if ref is not None:
+                measured.set_zero_reference(ref[0], ref[1])
+            else:
+                cx = (m_params["min_x"] + m_params["max_x"]) / 2.
+                cy = (m_params["min_y"] + m_params["max_y"]) / 2.
+                shift = comp.calc_z(cx, cy)
+                measured.build_mesh([[v - shift for v in row]
+                                     for row in new_points])
             m_params[P_KIND] = KIND_COMPENSATED
             self.bed_mesh.pmgr.save_profile(m_name)
             self.bed_mesh.set_mesh(measured)
