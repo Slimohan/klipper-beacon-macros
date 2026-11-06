@@ -7,6 +7,7 @@
 # This file may be distributed under the terms of the GNU GPLv3 license.
 
 import collections
+import logging
 
 SPINNER = "|/-\\"
 
@@ -148,3 +149,71 @@ def linear_fit(xs, ys):
         raise ValueError("cannot fit a line, all x values are equal")
     slope = sxy / sxx
     return slope, y0 - slope * x0
+
+
+# ---------------------------------------------------------------------------
+# Compatibility with the Beacon module (beacon_klipper)
+# ---------------------------------------------------------------------------
+# Everything the macros and extras use from the Beacon module. Checked against
+# beacon_klipper 3ccd2e6 (2026-10-16). If a Beacon update removes or renames
+# one of these, Klipper reports it at startup instead of failing mid-print.
+BEACON_ATTRIBUTES = ("x_offset", "y_offset", "trigger_distance",
+                     "default_probe_method", "last_temp", "model",
+                     "mesh_helper", "streaming_session", "get_offsets",
+                     "get_status")
+BEACON_MESH_HELPER_ATTRIBUTES = ("def_min_x", "def_min_y", "def_max_x",
+                                 "def_max_y", "def_contact_min",
+                                 "def_contact_max")
+BEACON_MODEL_ATTRIBUTES = ("name", "temp")
+BEACON_STATUS_FIELDS = ("last_z_result", "last_poke_result",
+                        "last_offset_result", "model")
+BEACON_COMMANDS = ("BEACON_AUTO_CALIBRATE", "BEACON_POKE", "BEACON_QUERY",
+                   "BEACON_OFFSET_COMPARE")
+
+
+def check_beacon_compatibility(printer):
+    """Returns a list of what is missing from the Beacon module (empty when
+    everything the macros need is there)."""
+    beacon = printer.lookup_object("beacon", None)
+    if beacon is None:
+        return ["the [beacon] object itself"]
+    missing = ["beacon.%s" % a for a in BEACON_ATTRIBUTES
+               if not hasattr(beacon, a)]
+    helper = getattr(beacon, "mesh_helper", None)
+    if helper is not None:
+        missing += ["beacon.mesh_helper.%s" % a
+                    for a in BEACON_MESH_HELPER_ATTRIBUTES
+                    if not hasattr(helper, a)]
+    model = getattr(beacon, "model", None)
+    if model is not None:
+        missing += ["beacon.model.%s" % a for a in BEACON_MODEL_ATTRIBUTES
+                    if not hasattr(model, a)]
+    try:
+        status = beacon.get_status(printer.get_reactor().monotonic())
+        missing += ["status field beacon.%s" % f for f in BEACON_STATUS_FIELDS
+                    if f not in status]
+    except Exception:
+        logging.exception("beacon_macros: reading the Beacon status failed")
+        missing.append("beacon.get_status()")
+    gcode = printer.lookup_object("gcode")
+    handlers = getattr(gcode, "ready_gcode_handlers", None)
+    if handlers is not None:
+        missing += ["command %s" % c for c in BEACON_COMMANDS
+                    if c not in handlers]
+    return missing
+
+
+def report_beacon_compatibility(printer):
+    missing = check_beacon_compatibility(printer)
+    if not missing:
+        return True
+    msg = ("The installed Beacon module is missing things the Beacon macros "
+           "use: %s. A Beacon update probably changed them. Calibration, "
+           "scan compensation or heat soak can fail. Roll the Beacon module "
+           "back (git -C ~/beacon_klipper log, then git -C ~/beacon_klipper "
+           "checkout <previous commit>, restart Klipper) and report it at "
+           "github.com/Slimohan/klipper-beacon-macros/issues."
+           % ", ".join(missing))
+    logging.warning("beacon_macros: %s", msg)
+    echo(printer, "Beacon macros", "warning", msg)
+    return False

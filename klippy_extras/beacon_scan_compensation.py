@@ -644,6 +644,7 @@ class BeaconScanCompensation:
         self.qgl = self.printer.lookup_object("quad_gantry_level", None)
 
     def _ready(self):
+        common.report_beacon_compatibility(self.printer)
         if self.bed_mesh is None:
             return
         # Wrap BED_MESH_CALIBRATE as the outermost handler, so that every mesh

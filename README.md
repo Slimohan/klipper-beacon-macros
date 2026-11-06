@@ -315,6 +315,28 @@ On current Klipper and Kalico builds, in batch mode with a stub standing in for 
 
 **Not tested yet:** cancelling a print through Mainsail's `CANCEL_PRINT` with `user_cancel_macro`, the `Z_TILT_ADJUST` branch (only QGL ran), and printers other than a Voron 2.4. For the first print, keep a hand near the emergency stop, run `BEACON_PREFLIGHT_CHECK`, and watch the prime blob and the first move to the print area.
 
+## Updating the Beacon module
+
+The macros use the Beacon module's commands (`BEACON_AUTO_CALIBRATE`, `BEACON_POKE`, `BEACON_QUERY`, `BEACON_OFFSET_COMPARE`, `PROBE PROBE_METHOD=...`), its status fields (`last_z_result`, `last_poke_result`, `last_offset_result`, `model`) and, in the extras, a few of its internals (offsets, trigger distance, the active model, the data stream). All of them were checked against [beacon_klipper](https://github.com/beacon3d/beacon_klipper) `3ccd2e6` (2026-10-16). Beacon updates usually leave these alone, but nothing guarantees it.
+
+With the extras installed, Klipper checks all of this at every start. If a Beacon update removed or renamed something, the console shows a "Beacon macros" warning that lists what is missing, before anything fails.
+
+After a Beacon update:
+
+1. Restart Klipper and look for that warning in the console.
+2. `BEACON_PREFLIGHT_CHECK`, then `G28` and `BEACON_POKE_TEST`.
+3. Start a small print and watch the print start (true zero, mesh, prime blob).
+
+If something broke, roll the Beacon module back to the version that worked and report it as an issue on this repo:
+
+```
+git -C ~/beacon_klipper log --oneline -5           # find the commit before the update
+git -C ~/beacon_klipper checkout <that commit>
+sudo systemctl restart klipper
+```
+
+Moonraker shows the Beacon module as "detached" while it is held back. `git -C ~/beacon_klipper checkout master` returns it to normal updates once it is fixed.
+
 ## Troubleshooting
 
 | What you see | Cause and fix |
@@ -332,6 +354,7 @@ On current Klipper and Kalico builds, in batch mode with a stub standing in for 
 | First layer too high along one edge (often the front) with scan compensation on, even with it off | The compensation mesh adds a slope that is not there. Load the `compensation_bed_*` profile in the heightmap: if Max and Min sit on opposite edges, turn compensation off (`variable_beacon_scan_compensation_enable: False`). See the note in "Scan compensation". |
 | Compensation warning "differs by 25.0 C" | No compensation mesh near that bed temperature. Make one at the temperature you print at. |
 | Klipper refuses to start after including `beacon_cancel_print.cfg` | It clashes with `mainsail.cfg` / `fluidd.cfg`. See "Cancelling a print". |
+| Console warning "The installed Beacon module is missing things the Beacon macros use" | A Beacon module update changed something the macros rely on. See "Updating the Beacon module". |
 | Not sure what is wrong in the config | `./install.sh --check` reads the whole config and lists the known problems with file and line. It changes nothing. |
 
 ## RatOS name mapping
