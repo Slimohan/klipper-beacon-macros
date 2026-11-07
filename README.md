@@ -217,6 +217,20 @@ Enable it with `variable_beacon_adaptive_heat_soak: True` in `_BEACON_SETTINGS`.
 
 How long it takes depends on how much the bed and frame are still moving, not on the model: from cold on an open frame expect roughly 10 to 30 minutes or more, a print right after another one is much shorter, and a higher layer quality waits longer. Settings: `beacon_adaptive_heat_soak_layer_quality` (3), `_maximum_first_layer_duration` (1800 s), `_min_wait`, `_max_wait` (5400 s), `_extra_wait_after_completion`. A CSV of the measured rates is written to the temp folder.
 
+#### Changing the heat soak per print
+
+The RatOS heat soak macros, with the same names, parameters and limits ([RatOS docs](https://os.ratrig.com/docs/configuration/heatsoaking/)). Changes last until Klipper restarts; to change the default, set the variables in `_BEACON_SETTINGS` in `printer.cfg`. Use them in the console, as Mainsail macro buttons, or in the slicer start G-code **above** the `START_PRINT` line.
+
+| Command | What it does |
+|---|---|
+| `USE_ADAPTIVE_HEATSOAK QUALITY=3 FIRST_LAYER_DURATION=30` | Adaptive soak for the next prints. `QUALITY` 1 (rough) to 5 (maximum), `FIRST_LAYER_DURATION` in minutes (up to 120). Needs the extras. |
+| `USE_FIXED_HEATSOAK DURATION=10` | Fixed soak in minutes (up to 720), adaptive off. |
+| `USE_NO_HEATSOAK` | No bed soak. |
+| `HEATSOAK_SETTINGS` | Shows which soak the next print uses; `VERBOSE=1` lists every setting. With `name=value` (without `variable_`) it sets that setting directly, for example `HEATSOAK_SETTINGS beacon_adaptive_heat_soak_extra_wait_after_completion=120`. Not validated, so the `USE_` commands are preferred. |
+| `RESET_HEATSOAK_SETTINGS` | Back to the values from `printer.cfg`, without a restart. |
+
+Values you leave out come from the `printer.cfg` startup values. To take them from the current values instead, add `DEFAULT=current` to a call, or set `variable_default_source: "current"` in your own `[gcode_macro HEATSOAK_SETTINGS]` after the include.
+
 The RatOS version fits a pygam model at runtime. This version ships the prediction as a table (`beacon_adaptive_heat_soak_thresholds.py`) sampled from a pygam 0.12.0 refit of the RatOS training data, with interpolation. At the five layer quality levels and first layer times of 200 s or more it agrees with that model within 5 percent. Below about 100 s the linear interpolation is up to 15 percent off. Thresholds can therefore differ slightly from RatOS.
 
 ### Scan compensation (`[beacon_scan_compensation]`)
