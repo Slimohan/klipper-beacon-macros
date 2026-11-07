@@ -84,7 +84,7 @@ Keep these consistent:
 2. Run `./install.sh --check` in that folder. It reads `printer.cfg` and every file it includes, the way Klipper does, and lists what would stop Klipper or the calibration, with the file and line: a leftover `[safe_z_home]` or `[probe]`, the Z endstop, `position_endstop`, `homing_retract_dist`, `contact_max_hotend_temperature`, missing probe offsets, the Beacon module or libopenblas missing, an option set to different values in two files (a placeholder serial path or a stock fan pin that silently wins), PID or input shaper values in an included file (`SAVE_CONFIG` refuses those), and `beacon_cancel_print.cfg` together with Mainsail/Fluidd. It changes nothing. Fix what it reports in your own files; it does not edit your sections.
 3. Run `./install.sh`. It
    - links the extras modules into `~/klipper` and/or `~/kalico` (and hides them from Klipper's git status),
-   - asks whether you want the RatOS style `START_PRINT` (`beacon_print.cfg`) and the RatOS style `LOAD_FILAMENT` / `UNLOAD_FILAMENT` (`filament.cfg`, skipped when you already have your own),
+   - asks whether you want the RatOS style `START_PRINT` (`beacon_print.cfg`),
    - backs up `printer.cfg` (`printer.cfg.bak-<date>`) and adds, only where missing, the includes, `[save_variables]`, `[exclude_object]` and, with Mainsail/Fluidd, a `_CLIENT_VARIABLE` so their `CANCEL_PRINT` runs `END_PRINT`. The additions are one marked block after your last include,
    - creates `variables.cfg`,
    - adds an `[update_manager beacon_macros]` entry to `moonraker.conf`, so updates come through the Mainsail/Fluidd update manager like everything else.
@@ -93,7 +93,7 @@ Keep these consistent:
 4. Restart Klipper and Moonraker (`sudo systemctl restart klipper moonraker`), then run `BEACON_PREFLIGHT_CHECK` in the console. If it says "Unknown command", see "Troubleshooting".
 5. Prepare for the calibration (see below), then run `G28` and `BEACON_FULL_CALIBRATE`. It heats the bed and nozzle, probes the bed a lot, then saves and restarts.
 
-Options: `--dry-run` (show the changes, write nothing), `--yes` (no questions, take the defaults), `--print-start` / `--no-print-start`, `--filament` / `--no-filament`, `--no-extras`, `--no-moonraker`, `--config <folder>` (another config folder), `--klipper <folder>` (another Klipper or Kalico folder), `--copy` (copy the modules instead of linking them), `--links-only` (only link the modules, the old behaviour). `./install.sh --help` lists them.
+Options: `--dry-run` (show the changes, write nothing), `--yes` (no questions, take the defaults), `--print-start` / `--no-print-start`, `--no-extras`, `--no-moonraker`, `--config <folder>` (another config folder), `--klipper <folder>` (another Klipper or Kalico folder), `--copy` (copy the modules instead of linking them), `--links-only` (only link the modules, the old behaviour). `./install.sh --help` lists them.
 
 ### By hand
 
@@ -320,17 +320,6 @@ On current Klipper and Kalico builds, in batch mode with a stub standing in for 
 **Print start on real hardware:** two full prints from OrcaSlicer through `START_PRINT` and `END_PRINT` on the same printer: a Voron cube (adaptive 3x3 mesh, prime blob probed at both ends, zero reference set, true zero correction applied) and a full-bed single layer (full 25x25 mesh). Both first layers came out even once scan compensation was off (see the note in "Scan compensation").
 
 **Not tested yet:** cancelling a print through Mainsail's `CANCEL_PRINT` with `user_cancel_macro`, the `Z_TILT_ADJUST` branch (only QGL ran), and printers other than a Voron 2.4. For the first print, keep a hand near the emergency stop, run `BEACON_PREFLIGHT_CHECK`, and watch the prime blob and the first move to the print area.
-
-## Filament load and unload (`filament.cfg`)
-
-Optional, and not Beacon specific: `LOAD_FILAMENT` and `UNLOAD_FILAMENT` ported from RatOS for single extruder printers. Mainsail and Fluidd show Load / Unload buttons in the extruder panel once these macros exist. The installer asks for it; by hand, add `[include beacon_macros/filament.cfg]`.
-
-- `LOAD_FILAMENT TEMP=220` heats (only if colder), pushes the filament from the gears to the end of the cold zone fast, then to the nozzle slowly, and optionally purges with the part fan.
-- `UNLOAD_FILAMENT TEMP=220` heats, waits 3 s, then does the RatOS standard unload: push 10, pull 5, wait, push 5, pull 15 fast, then pull 150 mm slowly so the tip solidifies before the gears. With `variable_enable_unload_tip_forming: True` it uses the RatOS tip forming instead (fast retract, four cooling moves, eject). Per filament tip forming goes into your own copy of `_UNLOAD_KNOWN_FILAMENT`, picked by `_NAME=` / `_TYPE=`.
-
-The distances are the RatOS defaults for its own toolheads. Measure yours and copy the lines you change from `[gcode_macro _FILAMENT_SETTINGS]` into `printer.cfg` after the include: `extruder_gear_to_cooling_position_distance` (gears to the end of the cold zone) and `cooling_position_to_nozzle_distance` (heatbreak to nozzle) matter most. Too long only purges a bit more; far too long can push filament into a cold heatbreak.
-
-Differences from RatOS: no IDEX, filament sensors, LEDs, M600 or COLD_PULL. The macros switch to relative extrusion for their own moves and restore the previous mode afterwards (RatOS relies on the mode already set), and long moves are split below `max_extrude_only_distance` (Klipper default 50 mm), so no `[extruder]` change is needed. Optional hooks: `_USER_FILAMENT_LOADING`, `_USER_FILAMENT_LOADED`, `_USER_FILAMENT_UNLOADING`, `_USER_FILAMENT_UNLOADED`, `_USER_BEFORE_PURGE_FILAMENT`, `_USER_AFTER_PURGE_FILAMENT`.
 
 ## Updating the Beacon module
 
