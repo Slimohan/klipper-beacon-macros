@@ -255,7 +255,13 @@ That is the PrusaSlicer / SuperSlicer spelling. End gcode is just `END_PRINT`.
 START_PRINT EXTRUDER_TEMP=[nozzle_temperature_initial_layer] EXTRUDER_OTHER_LAYER_TEMP=[nozzle_temperature] BED_TEMP=[bed_temperature_initial_layer_single] X0={first_layer_print_min[0]} Y0={first_layer_print_min[1]} X1={first_layer_print_max[0]} Y1={first_layer_print_max[1]} TOTAL_LAYER_COUNT=[total_layer_count]
 ```
 
-Optional, for the layer counter in the frontend, in "Before layer change G-code": `SET_PRINT_STATS_INFO CURRENT_LAYER={layer_num + 1}`.
+For the layer counter in Mainsail/Fluidd, also put this in "Before layer change G-code" (Printer settings, Machine G-code):
+
+```
+SET_PRINT_STATS_INFO CURRENT_LAYER={layer_num + 1}
+```
+
+`START_PRINT` sets the total layer count from `TOTAL_LAYER_COUNT`, but only the slicer knows when a new layer starts. Without this line the frontend shows "Layer 0 of N" for the whole print.
 
 Do not leave `M190` / `M109` in front of `START_PRINT`. They heat the nozzle to printing temperature before the true zero, so it oozes onto the bed during the contact probe. `START_PRINT` does all the heating itself, in the right order.
 
