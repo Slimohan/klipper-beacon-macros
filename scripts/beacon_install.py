@@ -321,7 +321,7 @@ def check_config(report, cfg, config_dir):
 # ---------------------------------------------------------------------------
 # Changes
 # ---------------------------------------------------------------------------
-def plan_printer_cfg(cfg, main_cfg, text, want_extras, want_print):
+def plan_printer_cfg(cfg, main_cfg, text, want_extras, want_print, want_filament=False):
     """Returns the new printer.cfg text and a list of change descriptions."""
     changes = []
     included = [os.path.normpath(f) for f in cfg.files]
@@ -332,7 +332,7 @@ def plan_printer_cfg(cfg, main_cfg, text, want_extras, want_print):
 
     inc_lines = []
     for name, want in (("beacon_macros.cfg", True), ("beacon_extras.cfg", want_extras),
-                       ("beacon_print.cfg", want_print)):
+                       ("beacon_print.cfg", want_print), ("filament.cfg", want_filament)):
         if want and not is_included(name):
             inc_lines.append("[include %s/%s]" % (FOLDER, name))
             changes.append("add [include %s/%s]" % (FOLDER, name))
@@ -419,6 +419,9 @@ def main():
     ap.add_argument("--print-start", dest="print_start", action="store_true", default=None,
                     help="include beacon_print.cfg (RatOS style START_PRINT)")
     ap.add_argument("--no-print-start", dest="print_start", action="store_false")
+    ap.add_argument("--filament", dest="filament", action="store_true", default=None,
+                    help="include filament.cfg (RatOS style LOAD_FILAMENT / UNLOAD_FILAMENT)")
+    ap.add_argument("--no-filament", dest="filament", action="store_false")
     ap.add_argument("--no-extras", action="store_true", help="do not install the extras modules")
     ap.add_argument("--no-moonraker", action="store_true", help="do not add the Moonraker update entry")
     ap.add_argument("--links-only", action="store_true", help="only link the extras modules (old install.sh behaviour)")
@@ -487,12 +490,27 @@ def main():
         want_print = already or ask("Use the RatOS style START_PRINT / END_PRINT (beacon_print.cfg)?",
                                     True, args.yes)
 
+    own_filament = os.path.normpath(os.path.join(config_dir, FOLDER, "filament.cfg")) in \
+        [os.path.normpath(f) for f in cfg.files]
+    other_filament = [s for s in cfg.sections
+                      if s.name.lower() in ("gcode_macro load_filament", "gcode_macro unload_filament")
+                      and os.sep + FOLDER + os.sep not in s.path]
+    want_filament = args.filament
+    if other_filament and not own_filament:
+        s = other_filament[0]
+        print("  You already have [%s] (%s line %d), so filament.cfg is not added."
+              % (s.name, rel(s.path, config_dir), s.line))
+        want_filament = False
+    elif want_filament is None:
+        want_filament = own_filament or ask(
+            "Add RatOS style LOAD_FILAMENT / UNLOAD_FILAMENT (filament.cfg)?", True, args.yes)
+
     if want_extras:
         link_extras(here, trees, copy, change)
 
     with open(main_cfg, encoding="utf-8") as f:
         text = f.read()
-    new_text, changes = plan_printer_cfg(cfg, main_cfg, text, want_extras, want_print)
+    new_text, changes = plan_printer_cfg(cfg, main_cfg, text, want_extras, want_print, want_filament)
     if changes:
         print("  printer.cfg:")
         for c in changes:
