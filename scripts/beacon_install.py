@@ -341,6 +341,13 @@ def plan_printer_cfg(cfg, main_cfg, text, want_extras, want_print):
     if not cfg.has("save_variables"):
         blocks.append("[save_variables]\nfilename: %s" % tilde(os.path.join(config_dir, "variables.cfg")))
         changes.append("add [save_variables] (stores the nozzle expansion coefficient)")
+    soak_set = any("variable_beacon_adaptive_heat_soak" in s.options
+                   for s in cfg.find("gcode_macro _BEACON_SETTINGS")
+                   if os.sep + FOLDER + os.sep not in s.path)
+    if want_extras and not soak_set:
+        blocks.append("# adaptive heat soak on by default, as the RatOS configurator does for Beacon printers\n"
+                      "[gcode_macro _BEACON_SETTINGS]\nvariable_beacon_adaptive_heat_soak: True")
+        changes.append("turn on adaptive heat soak (variable_beacon_adaptive_heat_soak: True), as RatOS does")
     if not cfg.has("exclude_object"):
         blocks.append("[exclude_object]")
         changes.append("add [exclude_object] (slicers like OrcaSlicer send EXCLUDE_OBJECT_DEFINE)")

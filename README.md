@@ -85,7 +85,7 @@ Keep these consistent:
 3. Run `./install.sh`. It
    - links the extras modules into `~/klipper` and/or `~/kalico` (and hides them from Klipper's git status),
    - asks whether you want the RatOS style `START_PRINT` (`beacon_print.cfg`),
-   - backs up `printer.cfg` (`printer.cfg.bak-<date>`) and adds, only where missing, the includes, `[save_variables]`, `[exclude_object]` and, with Mainsail/Fluidd, a `_CLIENT_VARIABLE` so their `CANCEL_PRINT` runs `END_PRINT`. The additions are one marked block after your last include,
+   - backs up `printer.cfg` (`printer.cfg.bak-<date>`) and adds, only where missing, the includes, `[save_variables]`, `[exclude_object]`, adaptive heat soak switched on (`variable_beacon_adaptive_heat_soak: True`, as the RatOS configurator does for Beacon printers; the macro default is off, as in RatOS) and, with Mainsail/Fluidd, a `_CLIENT_VARIABLE` so their `CANCEL_PRINT` runs `END_PRINT`. The additions are one marked block after your last include,
    - creates `variables.cfg`,
    - adds an `[update_manager beacon_macros]` entry to `moonraker.conf`, so updates come through the Mainsail/Fluidd update manager like everything else.
 
@@ -213,7 +213,9 @@ Options (repeat the section in `printer.cfg` to change): `disabled`, `z_rejectio
 
 `BEACON_WAIT_FOR_PRINTER_HEAT_SOAK` streams Beacon distance samples with the nozzle about 2.5 mm over the bed and measures how fast the Z distance still drifts (nm/s) while the frame expands. It returns when the drift stays below a threshold for long enough, or at the maximum wait. The threshold comes from a layer quality (1 to 5, maximum Z change over the first layer of 150, 100, 50, 20 or 10 microns) and the longest expected first layer time. `BEACON_PREDICT_HEAT_SOAK_THRESHOLD` shows the threshold without waiting.
 
-Enable it with `variable_beacon_adaptive_heat_soak: True` and call `BEACON_HEAT_SOAK` after `M190` in `PRINT_START`. With it disabled, `BEACON_HEAT_SOAK` just waits `bed_heat_soak_time`. Settings: `beacon_adaptive_heat_soak_layer_quality` (3), `_maximum_first_layer_duration` (1800 s), `_min_wait`, `_max_wait` (5400 s), `_extra_wait_after_completion`. A CSV of the measured rates is written to the temp folder.
+Enable it with `variable_beacon_adaptive_heat_soak: True` in `_BEACON_SETTINGS`. The macro default is off, as in RatOS's macros; the RatOS configurator switches it on in `printer.cfg` for Beacon printers, and `install.sh` does the same. **With it off and `bed_heat_soak_time` at 0, there is no bed soak at all:** the print starts as soon as the bed reaches temperature, and `BEACON_PREFLIGHT_CHECK` warns about that. `START_PRINT` calls `BEACON_HEAT_SOAK` itself; in your own `PRINT_START`, call it after `M190`. With it disabled, `BEACON_HEAT_SOAK` just waits `bed_heat_soak_time`.
+
+How long it takes depends on how much the bed and frame are still moving, not on the model: from cold on an open frame expect roughly 10 to 30 minutes or more, a print right after another one is much shorter, and a higher layer quality waits longer. Settings: `beacon_adaptive_heat_soak_layer_quality` (3), `_maximum_first_layer_duration` (1800 s), `_min_wait`, `_max_wait` (5400 s), `_extra_wait_after_completion`. A CSV of the measured rates is written to the temp folder.
 
 The RatOS version fits a pygam model at runtime. This version ships the prediction as a table (`beacon_adaptive_heat_soak_thresholds.py`) sampled from a pygam 0.12.0 refit of the RatOS training data, with interpolation. At the five layer quality levels and first layer times of 200 s or more it agrees with that model within 5 percent. Below about 100 s the linear interpolation is up to 15 percent off. Thresholds can therefore differ slightly from RatOS.
 
